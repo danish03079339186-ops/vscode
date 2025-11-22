@@ -307,6 +307,7 @@ export class TerminalProcess extends Disposable implements ITerminalChildProcess
 		options: IPtyForkOptions,
 		shellIntegrationInjection: IShellIntegrationConfigInjection | undefined
 	): Promise<void> {
+		console.debug('shellLaunchConfig:', shellLaunchConfig);
 		const args = shellIntegrationInjection?.newArgs || shellLaunchConfig.args || [];
 		await this._throttleKillSpawn();
 		this._logService.trace('node-pty.IPty#spawn', shellLaunchConfig.executable, args, options);

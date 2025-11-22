@@ -157,6 +157,8 @@ export class ToolTerminalCreator {
 				...config.env,
 				...shellOrProfile.env
 			};
+			config.sandboxed = shellOrProfile.sandboxed;
+			config.sandboxSettings = shellOrProfile.sandboxSettings;
 		}
 
 		return this._terminalService.createTerminal({ config });

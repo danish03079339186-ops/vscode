@@ -18,8 +18,22 @@ import { ILogService } from '../../log/common/log.js';
 import type { IAction } from '../../../base/common/actions.js';
 import type { IDisposable } from '../../../base/common/lifecycle.js';
 import type { SingleOrMany } from '../../../base/common/types.js';
-import { SandboxRuntimeConfig } from '@anthropic-ai/sandbox-runtime';
 
+/**
+ * Local type definition for sandbox runtime configuration to avoid importing external package
+ * in the common layer. The actual type should match @anthropic-ai/sandbox-runtime.
+ */
+export interface ISandboxRuntimeConfig {
+	network?: {
+		allowedDomains?: string[];
+		deniedDomains?: string[];
+	};
+	filesystem?: {
+		denyRead?: string[];
+		allowWrite?: string[];
+		denyWrite?: string[];
+	};
+}
 
 export const enum TerminalSettingPrefix {
 	AutomationProfile = 'terminal.integrated.automationProfile.',
@@ -674,7 +688,7 @@ export interface IShellLaunchConfig {
 	sandboxed?: boolean;
 
 	/** Sandbox settings to use when launching the terminal process in a sandboxed environment. */
-	sandboxSettings?: SandboxRuntimeConfig;
+	sandboxSettings?: ISandboxRuntimeConfig;
 }
 
 export interface ISandboxTerminalSettings {
@@ -732,7 +746,7 @@ export interface IShellLaunchConfigDto {
 	tabActions?: ITerminalTabAction[];
 	shellIntegrationEnvironmentReporting?: boolean;
 	sandboxed?: boolean;
-	sandboxSettings?: SandboxRuntimeConfig;
+	sandboxSettings?: ISandboxRuntimeConfig;
 }
 
 /**
@@ -750,7 +764,7 @@ export interface ITerminalProcessOptions {
 	environmentVariableCollections: ISerializableEnvironmentVariableCollections | undefined;
 	workspaceFolder: IWorkspaceFolder | undefined;
 	isScreenReaderOptimized: boolean;
-	sandboxSettings?: SandboxRuntimeConfig;
+	sandboxSettings?: ISandboxRuntimeConfig;
 }
 
 export interface ITerminalEnvironment {
@@ -942,6 +956,8 @@ export interface ITerminalProfile {
 	overrideName?: boolean;
 	color?: string;
 	icon?: ThemeIcon | URI | { light: URI; dark: URI };
+	sandboxed?: boolean;
+	sandboxSettings?: ISandboxRuntimeConfig;
 }
 
 export interface ITerminalDimensionsOverride extends Readonly<ITerminalDimensions> {

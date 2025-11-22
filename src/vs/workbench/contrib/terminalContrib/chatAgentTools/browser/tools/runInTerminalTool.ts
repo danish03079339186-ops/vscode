@@ -265,7 +265,7 @@ export class RunInTerminalTool extends Disposable implements IToolImpl {
 	private readonly _commandLineRewriters: ICommandLineRewriter[];
 	private readonly _commandLineAnalyzers: ICommandLineAnalyzer[];
 
-	protected readonly _sessionTerminalAssociations: Map<string, IToolTerminal> = new Map();
+	protected readonly _sessionTerminalAssociations: Map<string, [IToolTerminal]> = new Map();
 
 	// Immutable window state
 	protected readonly _osBackend: Promise<OperatingSystem>;
@@ -324,9 +324,11 @@ export class RunInTerminalTool extends Disposable implements IToolImpl {
 		this._restoreTerminalAssociations();
 		this._register(this._terminalService.onDidDisposeInstance(e => {
 			for (const [sessionId, toolTerminal] of this._sessionTerminalAssociations.entries()) {
-				if (e === toolTerminal.instance) {
-					this._sessionTerminalAssociations.delete(sessionId);
-				}
+				toolTerminal.forEach((terminal) => {
+					if (e === terminal.instance) {
+						this._sessionTerminalAssociations.delete(sessionId);
+					}
+				});
 			}
 		}));
 
@@ -342,7 +344,7 @@ export class RunInTerminalTool extends Disposable implements IToolImpl {
 	async prepareToolInvocation(context: IToolInvocationPreparationContext, token: CancellationToken): Promise<IPreparedToolInvocation | undefined> {
 		const args = context.parameters as IRunInTerminalInputParams;
 
-		const instance = context.chatSessionId ? this._sessionTerminalAssociations.get(context.chatSessionId)?.instance : undefined;
+		const instance = context.chatSessionId ? this._getFromCache(context.chatSessionId)?.instance : undefined;
 		const [os, shell, cwd] = await Promise.all([
 			this._osBackend,
 			this._profileFetcher.getCopilotShell(),
@@ -402,6 +404,8 @@ export class RunInTerminalTool extends Disposable implements IToolImpl {
 		const isSandboxingEnabled = this._configurationService.getValue<ISandboxTerminalSettings>(TerminalChatAgentToolsSettingId.TerminalSandbox)?.enabled === true;
 		if (isSandboxingEnabled) {
 			this._logService.info(`RunInTerminalTool: Sandboxing is enabled for terminal tool commands`);
+			this._logService.debug(`RunInTerminalTool--------debugggg------------------------------------------------------------------`);
+			console.debug(`RunInTerminalTool--------------------------------------------------------------------------`);
 			return {
 				toolSpecificData
 			};
@@ -416,7 +420,7 @@ export class RunInTerminalTool extends Disposable implements IToolImpl {
 		const isEligibleForAutoApproval = this._configurationService.getValue<Record<string, boolean>>(ChatConfiguration.EligibleForAutoApproval)?.[TOOL_REFERENCE_NAME] ?? true;
 		const isAutoApproveEnabled = this._configurationService.getValue(TerminalChatAgentToolsSettingId.EnableAutoApprove) === true;
 		const isAutoApproveWarningAccepted = this._storageService.getBoolean(TerminalToolConfirmationStorageKeys.TerminalAutoApproveWarningAccepted, StorageScope.APPLICATION, false);
-		const isAutoApproveAllowed = (isEligibleForAutoApproval && isAutoApproveEnabled && isAutoApproveWarningAccepted)
+		const isAutoApproveAllowed = (isEligibleForAutoApproval && isAutoApproveEnabled && isAutoApproveWarningAccepted);
 
 		const commandLineAnalyzerOptions: ICommandLineAnalyzerOptions = {
 			commandLine,
@@ -753,6 +757,31 @@ export class RunInTerminalTool extends Disposable implements IToolImpl {
 			};
 		}
 	}
+
+	private _isSandBoxedTerminal(): boolean {
+		const settings = this._configurationService.getValue<ISandboxTerminalSettings>(TerminalChatAgentToolsSettingId.TerminalSandbox);
+		return settings?.enabled === true;
+	}
+
+	private _getFromCache(chatSessionId: string): IToolTerminal | undefined {
+
+		if (this._isSandBoxedTerminal()) {
+			return this._sessionTerminalAssociations.get(chatSessionId)?.filter(terminal => terminal.instance.shellLaunchConfig?.sandboxed === true)[0];
+		} else {
+			return this._sessionTerminalAssociations.get(chatSessionId)?.filter(terminal => terminal.instance.shellLaunchConfig?.sandboxed !== true)[0];
+		}
+	}
+
+	private _addToCache(chatSessionId: string, toolTerminal: IToolTerminal): void {
+		if (!this._sessionTerminalAssociations.has(chatSessionId)) {
+			this._sessionTerminalAssociations.set(chatSessionId, [toolTerminal]);
+		} else {
+			const terminals = this._sessionTerminalAssociations.get(chatSessionId);
+			terminals?.push(toolTerminal);
+			this._sessionTerminalAssociations.set(chatSessionId, terminals!);
+		}
+	}
+
 	// #region Terminal init
 
 	private async _initBackgroundTerminal(chatSessionId: string, termId: string, terminalToolSessionId: string | undefined, token: CancellationToken): Promise<IToolTerminal> {
@@ -763,7 +792,7 @@ export class RunInTerminalTool extends Disposable implements IToolImpl {
 		this._terminalChatService.registerTerminalInstanceWithToolSession(terminalToolSessionId, toolTerminal.instance);
 		this._terminalChatService.registerTerminalInstanceWithChatSession(chatSessionId, toolTerminal.instance);
 		this._registerInputListener(toolTerminal);
-		this._sessionTerminalAssociations.set(chatSessionId, toolTerminal);
+		this._addToCache(chatSessionId, toolTerminal);
 		if (token.isCancellationRequested) {
 			toolTerminal.instance.dispose();
 			throw new CancellationError();
@@ -772,8 +801,10 @@ export class RunInTerminalTool extends Disposable implements IToolImpl {
 		return toolTerminal;
 	}
 
+
+
 	private async _initForegroundTerminal(chatSessionId: string, termId: string, terminalToolSessionId: string | undefined, token: CancellationToken): Promise<IToolTerminal> {
-		const cachedTerminal = this._sessionTerminalAssociations.get(chatSessionId);
+		const cachedTerminal = this._getFromCache(chatSessionId);
 		if (cachedTerminal) {
 			this._logService.debug(`RunInTerminalTool: Using cached foreground terminal with session ID \`${chatSessionId}\``);
 			this._terminalToolCreator.refreshShellIntegrationQuality(cachedTerminal);
@@ -786,7 +817,7 @@ export class RunInTerminalTool extends Disposable implements IToolImpl {
 		this._terminalChatService.registerTerminalInstanceWithToolSession(terminalToolSessionId, toolTerminal.instance);
 		this._terminalChatService.registerTerminalInstanceWithChatSession(chatSessionId, toolTerminal.instance);
 		this._registerInputListener(toolTerminal);
-		this._sessionTerminalAssociations.set(chatSessionId, toolTerminal);
+		this._addToCache(chatSessionId, toolTerminal);
 		if (token.isCancellationRequested) {
 			toolTerminal.instance.dispose();
 			throw new CancellationError();
@@ -824,7 +855,7 @@ export class RunInTerminalTool extends Disposable implements IToolImpl {
 							instance,
 							shellIntegrationQuality: association.shellIntegrationQuality
 						};
-						this._sessionTerminalAssociations.set(association.sessionId, toolTerminal);
+						this._addToCache(association.sessionId, toolTerminal);
 						this._terminalChatService.registerTerminalInstanceWithChatSession(association.sessionId, instance);
 
 						// Listen for terminal disposal to clean up storage
@@ -893,27 +924,28 @@ export class RunInTerminalTool extends Disposable implements IToolImpl {
 	}
 
 	private _cleanupSessionTerminals(sessionId: string): void {
-		const toolTerminal = this._sessionTerminalAssociations.get(sessionId);
-		if (toolTerminal) {
+		const toolTerminals = this._sessionTerminalAssociations.get(sessionId);
+		if (toolTerminals && toolTerminals.length > 0) {
 			this._logService.debug(`RunInTerminalTool: Cleaning up terminal for disposed chat session ${sessionId}`);
 
 			this._sessionTerminalAssociations.delete(sessionId);
-			toolTerminal.instance.dispose();
+			toolTerminals.forEach(toolTerminal => toolTerminal.instance.dispose());
 
 			// Clean up any background executions associated with this session
 			const terminalToRemove: string[] = [];
 			for (const [termId, execution] of RunInTerminalTool._backgroundExecutions.entries()) {
-				if (execution.instance === toolTerminal.instance) {
-					execution.dispose();
-					terminalToRemove.push(termId);
-				}
+				toolTerminals.forEach(toolTerminal => {
+					if (execution.instance === toolTerminal.instance) {
+						execution.dispose();
+						terminalToRemove.push(termId);
+					}
+				});
 			}
 			for (const termId of terminalToRemove) {
 				RunInTerminalTool._backgroundExecutions.delete(termId);
 			}
 		}
 	}
-
 	// #endregion
 }
 
